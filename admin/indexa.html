@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin | Light Connect</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+<div class="container mt-5">
+  <h2 class="text-center mb-4 text-danger">🛡️ Admin Dashboard</h2>
+
+  <!-- Login Section -->
+  <div id="authSection" class="card p-4 mb-4 shadow-sm">
+    <h5 class="mb-3 text-center">Admin Login</h5>
+    <div class="mb-3">
+      <input type="email" id="adminEmail" class="form-control" placeholder="Email">
+    </div>
+    <div class="mb-3">
+      <input type="password" id="adminPassword" class="form-control" placeholder="Password">
+    </div>
+    <div class="d-grid gap-2">
+      <button class="btn btn-danger" onclick="adminLogin()">Login</button>
+    </div>
+  </div>
+
+  <!-- Requests & Offers Section -->
+  <div id="dashboard" class="d-none">
+    <h5>All Buyer Requests</h5>
+    <table class="table table-striped shadow-sm mt-3">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>Qty</th>
+          <th>City</th>
+          <th>Status</th>
+          <th>Offers</th>
+        </tr>
+      </thead>
+      <tbody id="requestsTable"></tbody>
+    </table>
+    <div class="text-end mt-3">
+      <button class="btn btn-sm btn-danger" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Firebase & Bootstrap -->
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+<script src="../firebase-config.js"></script>
+
+<script>
+let currentUser = null;
+
+// Admin credentials can be restricted or use Firebase Auth users with role "admin"
+firebase.auth().onAuthStateChanged(user => {
+  if (user) {
+    currentUser = user;
+    document.getElementById('authSection').classList.add('d-none');
+    document.getElementById('dashboard').classList.remove('d-none');
+    loadRequests();
+  } else {
+    currentUser = null;
+    document.getElementById('authSection').classList.remove('d-none');
+    document.getElementById('dashboard').classList.add('d-none');
+  }
+});
+
+// Admin login
+function adminLogin() {
+  const email = adminEmail.value;
+  const pass = adminPassword.value;
+  firebase.auth().signInWithEmailAndPassword(email, pass)
+    .then(() => console.log('Admin Logged In'))
+    .catch(err => alert(err.message));
+}
+
+// Logout
+function logout() {
+  firebase.auth().signOut();
+}
+
+// Load all requests with offers
+function loadRequests() {
+  db.collection('requests').orderBy('createdAt', 'desc').onSnapshot(snapshot => {
+    const tbody = document.getElementById('requestsTable');
+    tbody.innerHTML = '';
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const requestId = doc.id;
+
+      // Get offers for this request
+      db.collection('offers').where('requestId', '==', requestId).get()
+        .then(offerSnap => {
+          let offerHtml = '';
+          offerSnap.forEach(offer => {
+            const o = offer.data();
+            offerHtml += `
+              <div class="border p-1 mb-1">
+                Seller: ${o.sellerId.slice(0,6)} | ₹${o.price} | ${o.timeline} 
+                <button class="btn btn-sm btn-success" onclick="selectOffer('${requestId}','${offer.id}')">Select</button>
+              </div>
+            `;
+          });
+
+          tbody.innerHTML += `
+            <tr>
+              <td>${data.product}</td>
+              <td>${data.qty}</td>
+              <td>${data.city}</td>
+              <td>${data.status}</td>
+              <td>${offerHtml || 'No offers yet'}</td>
+            </tr>
+          `;
+        });
+    });
+  });
+}
+
+// Select the winning offer
+function selectOffer(requestId, offerId) {
+  if (!confirm('Are you sure you want to select this offer?')) return;
+
+  // Update request
+  db.collection('requests').doc(requestId).update({
+    status: 'Matched',
+    matchedOfferId: offerId
+  });
+
+  // Update offer status
+  db.collection('offers').doc(offerId).update({
+    status: 'Accepted'
+  });
+
+  // Optionally, update other offers as Rejected
+  db.collection('offers')
+    .where('requestId','==',requestId)
+    .get()
+    .then(snapshot => {
+      snapshot.forEach(doc => {
+        if(doc.id !== offerId) {
+          doc.ref.update({status:'Rejected'});
+        }
+      });
+    });
+
+  alert('✅ Offer selected successfully');
+}
+</script>
+
+</body>
+</html>
